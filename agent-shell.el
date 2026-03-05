@@ -1368,12 +1368,14 @@ COMMAND, when present, may be a shell command string or an argv vector."
                                       (map-nested-elt state `(:tool-calls ,(map-nested-elt acp-notification '(params update toolCallId)) :raw-input)))
                          :output body-text)
                   :file-path agent-shell--transcript-file))
-               ;; Hide permission after sending response.
-               ;; Status and permission are no longer pending. User
-               ;; likely selected one of: accepted/rejected/always.
-               ;; Remove stale permission dialog.
-               (when (and (map-nested-elt acp-notification '(params update status))
-                          (not (equal (map-nested-elt acp-notification '(params update status)) "pending")))
+               ;; Hide permission dialog on terminal statuses only.
+               ;; An "in_progress" update may arrive before the user
+               ;; answers the permission prompt, so keep the dialog
+               ;; visible until completion.  The dialog is also
+               ;; removed immediately when the user responds (see
+               ;; `agent-shell--send-permission-response').
+               (when (member (map-nested-elt acp-notification '(params update status))
+                             '("completed" "error"))
                  ;; block-id must be the same as the one used as
                  ;; agent-shell--update-fragment param by "session/request_permission".
                  (agent-shell--delete-fragment :state state :block-id (format "permission-%s" (map-nested-elt acp-notification '(params update toolCallId)))))
@@ -1985,6 +1987,32 @@ For example, shut down ACP client."
   (agent-shell-heartbeat-stop
    :heartbeat (map-elt (agent-shell--state) :heartbeat)))
 
+(defun agent-shell--dot-subdir (subdir)
+  "Return path to .agent-shell/SUBDIR under project root, creating it if needed.
+When the directory is first created inside a git repo and
+.agent-shell/ is not yet ignored, automatically add it to .gitignore.
+
+For example:
+
+  (agent-shell--dot-subdir \"screenshots\")
+  => \"/path/to/project/.agent-shell/screenshots/\""
+  (let ((dir (expand-file-name (file-name-concat ".agent-shell" subdir)
+                               (agent-shell-cwd))))
+    (unless (file-directory-p dir)
+      (make-directory dir t)
+      (agent-shell--ensure-gitignore (agent-shell-cwd)))
+    dir))
+
+(defun agent-shell--ensure-gitignore (project-root)
+  "If .agent-shell/ is not ignored under PROJECT-ROOT, add it to .gitignore."
+  (condition-case nil
+      (when-let* (((eq 'Git (vc-responsible-backend project-root t)))
+                  (default-directory project-root)
+                  ((not (zerop (process-file "git" nil nil nil
+                                             "check-ignore" "-q" ".agent-shell")))))
+        (vc-ignore "/.agent-shell/" project-root))
+    (error nil)))
+
 (cl-defun agent-shell--capture-screenshot (&key destination-dir)
   "Capture a screenshot and save it to DESTINATION-DIR.
 
@@ -2001,8 +2029,6 @@ DESTINATION-DIR is required and must be provided."
          (command (car agent-shell-screenshot-command))
          (args (append (cdr agent-shell-screenshot-command)
                        (list file-path))))
-    (unless (file-directory-p destination-dir)
-      (make-directory destination-dir t))
     (redisplay) ;; Give redisplay a chance before blocking call-process
     (let ((exit-code (apply #'call-process command nil nil nil args)))
       (cond
@@ -2039,8 +2065,6 @@ for details."
                (mapconcat (lambda (h) (map-elt h :command))
                           agent-shell-clipboard-image-handlers ", "))))
      (t
-      (unless (file-directory-p destination-dir)
-        (make-directory destination-dir t))
       (condition-case err
           (funcall (map-elt handler :save) file-path)
         (error
@@ -4434,7 +4458,7 @@ The captured screenshot file path is then inserted into the shell prompt.
 
 When PICK-SHELL is non-nil, prompt for which shell buffer to use."
   (interactive)
-  (let* ((screenshots-dir (expand-file-name ".agent-shell/screenshots" (agent-shell-cwd)))
+  (let* ((screenshots-dir (agent-shell--dot-subdir "screenshots"))
          (screenshot-path (agent-shell--capture-screenshot :destination-dir screenshots-dir))
          (shell-buffer (when pick-shell
                          (completing-read "Send screenshot to shell: "
@@ -4461,7 +4485,7 @@ The saved image file path is then inserted into the shell prompt.
 
 When PICK-SHELL is non-nil, prompt for which shell buffer to use."
   (interactive)
-  (let* ((screenshots-dir (expand-file-name ".agent-shell/screenshots" (agent-shell-cwd)))
+  (let* ((screenshots-dir (agent-shell--dot-subdir "screenshots"))
          (image-path (agent-shell--save-clipboard-image :destination-dir screenshots-dir))
          (shell-buffer (when pick-shell
                          (completing-read "Send image to shell: "
@@ -4486,7 +4510,7 @@ Otherwise, invoke `yank' with ARG as usual.
 Needs external utilities. See `agent-shell-clipboard-image-handlers'
 for details."
   (interactive "*P")
-  (let* ((screenshots-dir (expand-file-name ".agent-shell/screenshots" (agent-shell-cwd)))
+  (let* ((screenshots-dir (agent-shell--dot-subdir "screenshots"))
          (image-path (agent-shell--save-clipboard-image :destination-dir screenshots-dir
                                                         :no-error t)))
     (if image-path
@@ -5699,7 +5723,7 @@ When nil, transcript saving is disabled."
 For example:
 
  project/.agent-shell/transcripts/."
-  (let* ((dir (expand-file-name ".agent-shell/transcripts" (agent-shell-cwd)))
+  (let* ((dir (agent-shell--dot-subdir "transcripts"))
          (filename (format-time-string "%F-%H-%M-%S.md"))
          (filepath (expand-file-name filename dir)))
     filepath))
@@ -5725,7 +5749,6 @@ Returns the file path, or nil if disabled."
           (let ((agent-name (or (map-nested-elt agent-shell--state '(:agent-config :mode-line-name))
                                 (map-nested-elt agent-shell--state '(:agent-config :buffer-name))
                                 "Unknown Agent")))
-            (make-directory dir t)
             (write-region
              (format "# Agent Shell Transcript
 
