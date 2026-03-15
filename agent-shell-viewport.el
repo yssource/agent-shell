@@ -738,6 +738,14 @@ With EXISTING-ONLY, only return existing buffers without creating."
   (insert "again")
   (agent-shell-viewport-compose-send))
 
+(defun agent-shell-viewport-reply-continue ()
+  "Reply with \"continue\" and send immediately."
+  (declare (modes agent-shell-viewport-view-mode))
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "continue")
+  (agent-shell-viewport-compose-send))
+
 (defun agent-shell-viewport-previous-page ()
   "Show previous interaction (request / response)."
   (declare (modes agent-shell-viewport-view-mode))
@@ -990,6 +998,7 @@ VIEWPORT-BUFFER is the viewport buffer to check."
     (define-key map (kbd "v") #'agent-shell-viewport-set-session-model)
     (define-key map (kbd "m") #'agent-shell-viewport-reply-more)
     (define-key map (kbd "a") #'agent-shell-viewport-reply-again)
+    (define-key map (kbd "c") #'agent-shell-viewport-reply-continue)
     (define-key map (kbd "s") #'agent-shell-viewport-set-session-mode)
     (define-key map (kbd "o") #'agent-shell-other-buffer)
     (define-key map (kbd "C-c C-o") #'agent-shell-other-buffer)
@@ -1026,6 +1035,9 @@ VIEWPORT-BUFFER is the viewport buffer to check."
                            (:if-not . agent-shell-viewport--busy-p))
                           ((:function . agent-shell-other-buffer)
                            (:description . "Switch to shell")
+                           (:transient . nil))
+                          ((:function . bury-buffer)
+                           (:description . "Close")
                            (:transient . nil)))))
                 (apply #'vector ""
                        (agent-shell-viewport--make-transient-group
@@ -1042,23 +1054,29 @@ VIEWPORT-BUFFER is the viewport buffer to check."
                           ((:function . agent-shell-viewport-reply-again)
                            (:description . "Reply \"again\"")
                            (:if-not . agent-shell-viewport--busy-p))
+                          ((:function . agent-shell-viewport-reply-continue)
+                           (:description . "Reply \"continue\"")
+                           (:if-not . agent-shell-viewport--busy-p))
                           ((:function . agent-shell-viewport-reply-1)
                            (:description . "Reply \"1\"")
                            (:if-not . agent-shell-viewport--busy-p)))))
                 (apply #'vector ""
                        (agent-shell-viewport--make-transient-group
                         agent-shell-viewport-view-mode-map
-                        '(((:function . agent-shell-viewport-set-session-model)
+                        '(((:function . agent-shell-viewport-reply-2)
+                           (:description . "Reply \"2\"")
+                           (:if-not . agent-shell-viewport--busy-p))
+                          ((:function . agent-shell-viewport-reply-3)
+                           (:description . "Reply \"3\"")
+                           (:if-not . agent-shell-viewport--busy-p))
+                          ((:function . agent-shell-viewport-set-session-model)
                            (:description . "Set model"))
                           ((:function . agent-shell-viewport-set-session-mode)
                            (:description . "Set mode"))
                           ((:function . agent-shell-viewport-cycle-session-mode)
                            (:description . "Cycle mode"))
                           ((:function . agent-shell-viewport-interrupt)
-                           (:description . "Interrupt"))
-                          ((:function . bury-buffer)
-                           (:description . "Close")
-                           (:transient . nil)))))
+                           (:description . "Interrupt")))))
                 (apply #'vector ""
                        (agent-shell-viewport--make-transient-group
                         agent-shell-viewport-view-mode-map
