@@ -873,17 +873,37 @@ Always prompts for agent selection, even if existing shells are available."
   "Clear conversation by restarting the agent shell in the same project.
 
 Kills the current shell buffer (shutting down the ACP client) and
-starts a fresh shell with the same agent configuration."
-  (declare (modes agent-shell-mode))
+starts a fresh shell with the same agent configuration.
+
+Works from both shell and viewport buffers."
+  (declare (modes agent-shell-mode
+                  agent-shell-viewport-view-mode
+                  agent-shell-viewport-edit-mode))
   (interactive)
-  (unless (derived-mode-p 'agent-shell-mode)
-    (user-error "Not in a shell"))
-  (when (agent-shell--active-requests-p (agent-shell--state))
-    (unless (y-or-n-p "Agent is busy.  Clear anyway?")
-      (user-error "Cancelled")))
-  (let ((config (map-elt agent-shell--state :agent-config)))
-    (kill-buffer (current-buffer))
-    (agent-shell--start :config config :new-session t)))
+  (let* ((from-viewport (or (derived-mode-p 'agent-shell-viewport-view-mode)
+                            (derived-mode-p 'agent-shell-viewport-edit-mode)))
+         (shell-buffer (or (agent-shell--current-shell)
+                           (user-error "Not in a shell or viewport buffer")))
+         (strategy (if (eq (buffer-local-value 'agent-shell-session-strategy shell-buffer)
+                           'new-deferred)
+                       'new-deferred
+                     'new))
+         (config (map-elt (buffer-local-value 'agent-shell--state shell-buffer)
+                          :agent-config)))
+    (with-current-buffer shell-buffer
+      (when (and (agent-shell--active-requests-p (agent-shell--state))
+                 (not (y-or-n-p "Agent is busy.  Restart anyway?")))
+        (user-error "Cancelled")))
+    (kill-buffer shell-buffer)
+    (let ((new-shell-buffer (agent-shell--start
+                             :config config
+                             :session-strategy strategy
+                             :new-session t
+                             :no-focus t)))
+      (if (or from-viewport agent-shell-prefer-viewport-interaction)
+          (agent-shell-viewport--show-buffer
+           :shell-buffer new-shell-buffer)
+        (agent-shell--display-buffer new-shell-buffer)))))
 
 ;;;###autoload
 (defun agent-shell-resume-session (session-id)
