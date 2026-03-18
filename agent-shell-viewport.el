@@ -369,18 +369,25 @@ Optionally set its PROMPT and RESPONSE."
   (setq agent-shell-viewport--compose-snapshot nil)
   (let ((viewport-buffer (current-buffer))
         (shell-buffer (agent-shell-viewport--shell-buffer)))
-    ;; View mode
-    (if (or (derived-mode-p 'agent-shell-viewport-view-mode)
-            (with-current-buffer shell-buffer
-              (not (shell-maker-history-position))))
-        (bury-buffer)
-      ;; Edit mode
+    (cond
+     ;; View mode
+     ((derived-mode-p 'agent-shell-viewport-view-mode)
+      (bury-buffer))
+     ;; Edit mode, no history to go back to
+     ((with-current-buffer shell-buffer
+        (not (shell-maker-history-position)))
+      (when (or (string-empty-p (string-trim (buffer-string)))
+                (y-or-n-p "Discard composed prompt? "))
+        (agent-shell-viewport--initialize)
+        (bury-buffer)))
+     ;; Edit mode, has history
+     (t
       (when (or (string-empty-p (string-trim (buffer-string)))
                 (y-or-n-p "Discard composed prompt? "))
         (if agent-shell-prefer-viewport-interaction
             (agent-shell-viewport-view-last)
           (agent-shell-other-buffer)
-          (kill-buffer viewport-buffer))))))
+          (kill-buffer viewport-buffer)))))))
 
 (defun agent-shell-viewport-previous-history ()
   "Insert previous prompt from history into compose buffer."
